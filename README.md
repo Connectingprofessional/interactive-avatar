@@ -1,12 +1,15 @@
 # Interactive avatar prototype
 
-Video-call style AI avatar: pick a face, type or speak a question, hear a spoken reply.
+Video-call style AI avatar. Pick a face, type or speak a question, and hear a spoken reply.
 
-This repo holds the app source that powers the live Halo Call prototype.
+Source for the Halo Call prototype:
 
-- Avatar frame with photo upload
+- Round video-call frame
+- Preset avatars plus photo upload
 - Text and microphone input
-- Spoken replies (xAI voice) with a browser speech fallback
+- Spoken replies via xAI voice, with a browser speech fallback
 - Voices: Eve, Ara, Rex, Sal
 
-True frame-by-frame lip-sync (MuseTalk / LivePortrait) needs a GPU and is not included here.
+Frame-accurate lip-sync (MuseTalk / LivePortrait) needs a GPU and is not in this prototype.
+
+The running app lives in the Grok app preview. This repository is the source snapshot.
