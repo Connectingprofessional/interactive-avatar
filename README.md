@@ -1,15 +1,11 @@
-# Interactive avatar prototype
+# Interactive avatar
 
-Video-call style AI avatar. Pick a face, type or speak a question, and hear a spoken reply.
+Public call screen, deployed with GitHub Pages. No API key is stored in this site.
 
-Source for the Halo Call prototype:
+Live page: https://connectingprofessional.github.io/interactive-avatar/
 
-- Round video-call frame
-- Preset avatars plus photo upload
-- Text and microphone input
-- Spoken replies via xAI voice, with a browser speech fallback
-- Voices: Eve, Ara, Rex, Sal
+- Pick Maya, Kai, or Aria, or upload a photo
+- Type or use the mic
+- The avatar answers out loud with the browser voice
 
-Frame-accurate lip-sync (MuseTalk / LivePortrait) needs a GPU and is not in this prototype.
-
-The running app lives in the Grok app preview. This repository is the source snapshot.
+The `src/` files are the earlier app prototype. They are not what GitHub Pages serves. Pages publishes only `docs/`.
