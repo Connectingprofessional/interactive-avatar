@@ -7,3 +7,5 @@ Free and open source engines (run in the browser): Kokoro and Piper (natural voi
 WebLLM (local AI model, needs WebGPU), plus built-in browser voice/mic and an optional own-API-key brain.
 
 See DEPLOY.md. Add avatars in PRESETS, languages in LANGS, professions in PERSONAS, voices in KOKORO / PIPER.
+
+Optional realistic video avatar (free, open source LiveTalking): see LIVE-AVATAR.md. Local only, needs server.py.

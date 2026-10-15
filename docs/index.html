@@ -329,6 +329,13 @@
         <button id="alignCopy" type="button" style="margin-left:12px">Copy config</button>
       </div>
       <p class="small">Upload any clear, front-facing photo. In Chrome the mouth is found automatically when face detection is enabled; otherwise tap the lips once.</p>
+
+      <div id="engineBox" hidden style="display:none;flex-direction:column;gap:8px;margin-top:10px">
+        <div class="label-t">Live video avatar</div>
+        <select id="engineSel" aria-label="Live video avatar engine"></select>
+        <button class="btn" id="engineBtn" type="button">Start live avatar</button>
+        <p class="small" id="engineNote">Free and open source: a video avatar from a LiveTalking server you run yourself. It speaks with your chosen free voice and brain. Needs a natural voice (Kokoro or Piper) under Brain and offline AI.</p>
+      </div>
     </div>
 
     <div class="pane" data-pane="voice" hidden>
@@ -421,6 +428,7 @@
   </form>
 </dialog>
 
+<script src="providers.js"></script>
 <script>
 (() => {
 "use strict";
@@ -1373,6 +1381,7 @@ const Speech = {
     this.active = false;
     clearTimeout(this.timer); clearTimeout(this.fallbackTimer);
     if (canTTS) { try { speechSynthesis.cancel(); } catch { /* ignore */ } }
+    Remote.interrupt();
     AudioOut.stop();
     Lip.speaking = false;
   },
@@ -1398,6 +1407,7 @@ const Speech = {
         setState("speaking"); caption(item.text);
         const rate = buf._rate || 1;
         this.timer = setTimeout(done, (buf.duration / rate) * 1000 + 4000);   // watchdog
+        if (Remote.active) { Remote.speak(buf).then(done, done); return; }   // the live avatar says it, with our voice
         AudioOut.play(buf, done, rate);
         return;
       }
@@ -1827,6 +1837,73 @@ function addMsg(role, text) {
   return d;
 }
 
+/* ---- optional live video avatar: LiveTalking, free and open source. See providers.js and server.py ---- */
+const Remote = {
+  p: null, active: false, kind: "", cfg: null, busy: false,
+  async init() {
+    if (!window.LiveAvatars) return;
+    this.cfg = await LiveAvatars.config();
+    if (!this.cfg) return;                                   // no local server: feature stays hidden
+    const opts = [];
+    if (this.cfg.livetalking.enabled) opts.push(["livetalking", LiveAvatars.kinds.livetalking.label]);
+    if (!opts.length) return;
+    $("#engineSel").innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+    $("#engineBox").hidden = false; $("#engineBox").style.display = "flex";
+    $("#engineSel").addEventListener("change", () => this.sync());
+    $("#engineBtn").addEventListener("click", () => (this.active ? this.stop() : this.start()));
+    this.sync();
+    addEventListener("pagehide", () => { if (this.p && this.p.beacon) this.p.beacon(); });
+  },
+  sync() {
+    $("#engineBtn").textContent = this.active ? "Stop live avatar" : "Start live avatar";
+    $("#engineSel").disabled = this.active || this.busy;
+  },
+  async start() {
+    if (this.active || this.busy) return;
+    const kind = $("#engineSel").value;
+    if (Voices.engine().kind === "browser") {
+      hint("The live avatar needs a natural voice. Open Brain and offline AI, tick Natural human voice, then pick a Kokoro or Piper voice in the Voice tab.", true);
+      return;
+    }
+    this.busy = true; this.sync(); $("#engineBtn").textContent = "Connecting…";
+    interrupt();
+    try {
+      const p = LiveAvatars.create(kind, {
+        mount: el.box,
+        onStatus: (t) => { $("#engineNote").textContent = t; },
+        onClose: (m) => { this.drop(); hint(m, true); },
+      });
+      await p.connect();
+      this.p = p; this.active = true; this.kind = kind;
+      el.cv.style.visibility = "hidden";
+      $("#chipMode").textContent = "Live video";
+      $("#chipCredit").textContent = "No credits needed";
+      hint("");
+    } catch (e) {
+      hint("Live avatar: " + (e && e.message ? e.message : e), true);
+      $("#engineNote").textContent = "Could not start. See the message at the top.";
+      try { await (this.p || {}).disconnect?.(); } catch { /* */ }
+    } finally { this.busy = false; this.sync(); }
+  },
+  drop() {                                                   // back to the built-in animated photo
+    this.active = false; this.p = null;
+    el.cv.style.visibility = "";
+    $("#chipMode").textContent = "Browser voice"; $("#chipCredit").textContent = "No credits needed";
+    $("#engineNote").textContent = "Stopped. Back to the built-in avatar.";
+    this.sync();
+  },
+  async stop() {
+    const p = this.p;
+    this.drop();
+    if (p) { try { await p.disconnect(); } catch { /* */ } }
+  },
+  speak(buf) {
+    if (!this.p) return Promise.resolve();
+    return this.p.speak(buf.getChannelData(0), buf.sampleRate).catch((e) => { hint("Live avatar: " + e.message, true); });
+  },
+  interrupt() { if (this.p) { try { this.p.interrupt(); } catch { /* */ } } },
+};
+
 function interrupt() {
   turn++;
   if (abortCtl) { try { abortCtl.abort(); } catch { /* */ } abortCtl = null; }
@@ -1890,7 +1967,7 @@ async function send(text, fromVoice = false) {
 }
 
 function endCall() {
-  interrupt(); Mic.stop(); Sessions.close(); Cam.off();
+  interrupt(); Mic.stop(); Sessions.close(); Cam.off(); Remote.stop();
   Mic.wanted = false;
   history = []; lastReply = ""; chromeSession = null;
   el.log.textContent = "";
@@ -2234,6 +2311,7 @@ $("#dlgForm").addEventListener("submit", (e) => {
   addMsg("assistant", currentPersona().id === "general" ? GREETING : currentPersona().greet);
   const saved = store.get("avatar", "maya");
   usePreset(PRESETS[saved] ? saved : "maya");
+  Remote.init();
 })();
 })();
 </script>

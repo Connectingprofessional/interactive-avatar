@@ -2,7 +2,7 @@
 
 ## Run on your computer (Windows)
 1. Unzip into an empty folder.
-2. Double-click `run-local.bat` (needs Python or Node). It opens http://localhost:8000.
+2. Double-click `run-local.bat` (needs Python or Node). It runs server.py and opens http://localhost:8000.
    Do not double-click index.html: browsers block the AI workers on file:// pages.
 
 ## Deploy free on GitHub Pages
