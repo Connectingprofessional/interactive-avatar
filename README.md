@@ -1,11 +1,9 @@
-# Interactive avatar
+# Interactive avatar studio
 
-Public call screen, deployed with GitHub Pages. No API key is stored in this site.
+Single-file app (index.html). Video-call layout: AI avatar + your camera, live captions, hands-free voice chat.
+Sidebar: Live Session, History, Knowledge Base, Personal Growth. Right panel: Identity, Voice, Persona, Chat.
 
-Live page: https://connectingprofessional.github.io/interactive-avatar/
+Free and open source engines (run in the browser): Kokoro and Piper (natural voices), Whisper (listening),
+WebLLM (local AI model, needs WebGPU), plus built-in browser voice/mic and an optional own-API-key brain.
 
-- Pick Maya, Kai, or Aria, or upload a photo
-- Type or use the mic
-- The avatar answers out loud with the browser voice
-
-The `src/` files are the earlier app prototype. They are not what GitHub Pages serves. Pages publishes only `docs/`.
+See DEPLOY.md. Add avatars in PRESETS, languages in LANGS, professions in PERSONAS, voices in KOKORO / PIPER.
