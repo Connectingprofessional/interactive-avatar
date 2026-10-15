@@ -9,6 +9,7 @@
 1. Create a repository (or use connectingprofessional/interactive-avatar).
 2. Upload everything in this folder to the repository root (index.html must be at the root). Keep the hidden `.nojekyll` file.
 3. Settings > Pages > Build and deployment > Source: "Deploy from a branch" > Branch: main, folder: / (root) > Save.
+   (This repo also has a GitHub Actions workflow that publishes the `docs/` folder. Keep `docs/index.html` identical to the root `index.html`.)
 4. Wait about a minute, then open https://YOUR-USER.github.io/YOUR-REPO/
 
 Git commands, if you prefer:
