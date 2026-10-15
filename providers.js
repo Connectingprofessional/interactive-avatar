@@ -14,8 +14,8 @@
   "use strict";
 
   /* ---------------- helpers ---------------- */
-  async function api(path, body) {
-    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  async function api(path, body, extra) {
+    const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", ...(extra || {}) }, body: JSON.stringify(body || {}) });
     let j = {};
     try { j = await r.json(); } catch { /* not JSON */ }
     if (!r.ok) throw new Error(j.error || j.message || "Server answered " + r.status);
@@ -66,17 +66,21 @@
    * You run https://github.com/lipku/LiveTalking on a GPU machine and set LIVETALKING_URL in .env.
    * The browser sends a WebRTC offer (through server.py), watches the video, and we push our own voice as a WAV file. */
   class LiveTalking {
-    constructor(o) { this.o = o; this.closed = false; }
+    constructor(o) { this.o = o; this.closed = false; this.backend = 0; }
     status(t) { try { this.o.onStatus && this.o.onStatus(t); } catch { /* */ } }
+    hdr() { return { "X-LT-Backend": String(this.backend) }; }
 
     async connect() {
       this.status("Connecting to LiveTalking…");
-      this.video = makeVideo(this.o.mount);
+      if (!this.video) this.video = makeVideo(this.o.mount);
       const pc = (this.pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] }));
       pc.addTransceiver("video", { direction: "recvonly" });
       pc.addTransceiver("audio", { direction: "recvonly" });
-      pc.ontrack = (e) => { if (this.video.srcObject !== e.streams[0]) this.video.srcObject = e.streams[0]; };
-      pc.onconnectionstatechange = () => { if (["failed", "closed"].includes(pc.connectionState)) this.lost("The live avatar disconnected."); };
+      pc.ontrack = (e) => { if (this.video && this.video.srcObject !== e.streams[0]) this.video.srcObject = e.streams[0]; };
+      pc.onconnectionstatechange = () => {
+        if (pc !== this.pc || this.closed) return;
+        if (["failed", "closed"].includes(pc.connectionState)) this.recover();
+      };
       await pc.setLocalDescription(await pc.createOffer());
       await new Promise((res) => {
         if (pc.iceGatheringState === "complete") return res();
@@ -86,24 +90,50 @@
       const j = await api("/api/livetalking/offer", { sdp: pc.localDescription.sdp, type: pc.localDescription.type });
       const a = j.data && j.data.sdp ? j.data : j;                    // accept both plain and {code,data} replies
       this.sid = a.sessionid;
+      this.backend = j.backend || 0;                                  // which server the app picked (priority order)
       await pc.setRemoteDescription({ sdp: a.sdp, type: a.type || "answer" });
-      this.status("Live");
+      this.status(this.backend ? "Live (backup server " + (this.backend + 1) + ")" : "Live");
+    }
+
+    /** the server died or the connection broke: join the next server that is up, in priority order */
+    reconnect() {
+      if (this._re) return this._re;
+      this._re = (async () => {
+        for (let i = 0; i < 4 && !this.closed; i++) {
+          this.status("Live avatar lost. Switching to the next server…");
+          try { this.pc && (this.pc.onconnectionstatechange = null, this.pc.close()); } catch { /* */ }
+          try { await this.connect(); return true; } catch { await wait(2000); }
+        }
+        return false;
+      })().finally(() => { this._re = null; });
+      return this._re;
+    }
+    async recover() {
+      if (!(await this.reconnect()) && !this.closed) this.lost("No live avatar server is reachable. Back to the built-in avatar.");
+    }
+
+    async post(pcm, rate) {
+      const fd = new FormData();
+      fd.append("sessionid", String(this.sid));
+      fd.append("file", wavBlob(pcm, rate), "speech.wav");
+      const r = await fetch("/api/livetalking/humanaudio", { method: "POST", body: fd, headers: this.hdr() });
+      if (!r.ok) throw new Error("LiveTalking refused the audio (" + r.status + ")");
     }
 
     async speak(f32, rate) {
       const pcm = toPCM16(f32, rate, rate);
       const seconds = pcm.length / rate;
-      const fd = new FormData();
-      fd.append("sessionid", String(this.sid));
-      fd.append("file", wavBlob(pcm, rate), "speech.wav");
-      const r = await fetch("/api/livetalking/humanaudio", { method: "POST", body: fd });
-      if (!r.ok) throw new Error("LiveTalking refused the audio (" + r.status + ")");
+      try { await this.post(pcm, rate); }
+      catch (e) {                                                     // server gone mid-call: switch and say the sentence again
+        if (this.closed || !(await this.reconnect())) throw e;
+        await this.post(pcm, rate);
+      }
       // wait until it stops talking: poll, with a cap so the conversation can never hang
       const end = Date.now() + seconds * 1000 + 8000;
       await wait(Math.min(1200, seconds * 1000));
       while (!this.closed && Date.now() < end && !this.cancel) {
         let speaking = true;
-        try { const s = await api("/api/livetalking/is_speaking", { sessionid: this.sid }); speaking = !!(s.data !== undefined ? s.data : s); } catch { break; }
+        try { const s = await api("/api/livetalking/is_speaking", { sessionid: this.sid }, this.hdr()); speaking = !!(s.data !== undefined ? s.data : s); } catch { break; }
         if (!speaking) break;
         await wait(250);
       }
@@ -112,12 +142,12 @@
 
     interrupt() {
       this.cancel = true;
-      if (this.sid !== undefined) api("/api/livetalking/interrupt_talk", { sessionid: this.sid }).catch(() => {});
+      if (this.sid !== undefined) api("/api/livetalking/interrupt_talk", { sessionid: this.sid }, this.hdr()).catch(() => {});
     }
 
     lost(msg) { if (this.closed) return; this.closed = true; this.cleanup(); this.o.onClose && this.o.onClose(msg); }
     cleanup() {
-      try { this.pc && this.pc.close(); } catch { /* */ }
+      try { this.pc && (this.pc.onconnectionstatechange = null, this.pc.close()); } catch { /* */ }
       if (this.video) { this.video.srcObject = null; this.video.remove(); this.video = null; }
     }
     async disconnect() { this.closed = true; this.cleanup(); }

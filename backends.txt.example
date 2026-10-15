@@ -1,0 +1,6 @@
+# Copy to "backends.txt" (same folder as server.py). One LiveTalking server per line, best first.
+# The app uses the first one that answers. If it dies mid-call, the app switches to the next one by itself.
+# The file is re-read on every call, so when a free host gives you a new address, edit this file. No restart needed.
+http://127.0.0.1:8010
+# https://your-second-host.example.com
+# https://your-third-host.example.com

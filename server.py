@@ -8,10 +8,15 @@ It does two jobs on one port:
 
 Backend routes:
   GET  /api/avatar/config            is a live avatar engine configured?
+  GET  /api/livetalking/health       which configured servers are up right now
   POST /api/livetalking/<route>      pass-through to LIVETALKING_URL (offer, human, humanaudio, interrupt_talk, is_speaking)
 
 Settings (environment variables or a `.env` file next to this script):
-  LIVETALKING_URL   e.g. http://127.0.0.1:8010   (leave empty to use only the built-in avatar)
+  LIVETALKING_URL   one URL, or several separated by commas in priority order, e.g.
+                    http://127.0.0.1:8010,https://backup.example.com  (empty = built-in avatar only)
+  backends.txt      optional file, one URL per line in priority order; re-read on every call, so you can
+                    swap a changed address without restarting. If present it replaces LIVETALKING_URL.
+                    The first server that answers is used; if it dies mid-call the app switches to the next.
   PORT              default 8000
   HOST              default 127.0.0.1 (keep it: this server is meant for your own computer)
 """
@@ -41,10 +46,38 @@ def load_env():
 
 
 load_env()
-LIVETALKING_URL = os.environ.get("LIVETALKING_URL", "").strip().rstrip("/")
+LIVETALKING_URL = os.environ.get("LIVETALKING_URL", "").strip()
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8000"))
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
+
+
+def backends():
+    """LiveTalking servers in priority order (backends.txt wins over LIVETALKING_URL)."""
+    urls = []
+    f = ROOT / "backends.txt"
+    if f.is_file():
+        urls = [l.strip() for l in f.read_text(encoding="utf-8").splitlines() if l.strip() and not l.strip().startswith("#")]
+    if not urls:
+        urls = [u.strip() for u in LIVETALKING_URL.split(",") if u.strip()]
+    return [u.rstrip("/") for u in urls if u.lower().startswith(("http://", "https://"))]
+
+
+def is_up(url):
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url + "/", method="GET"), timeout=2.5):
+            return True
+    except urllib.error.HTTPError:
+        return True                                   # it answered, so it is alive
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def first_up():
+    for i, u in enumerate(backends()):
+        if is_up(u):
+            return i
+    return None
 
 
 class UpstreamError(Exception):
@@ -97,7 +130,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(403, {"error": "Bad host"})
         path = urlparse(self.path).path
         if path == "/api/avatar/config":
-            return self.send_json(200, {"livetalking": {"enabled": bool(LIVETALKING_URL)}})
+            return self.send_json(200, {"livetalking": {"enabled": bool(backends()), "servers": len(backends())}})
+        if path == "/api/livetalking/health":
+            return self.send_json(200, {"servers": [{"index": i, "up": is_up(u)} for i, u in enumerate(backends())]})
         if path.startswith("/api/"):
             return self.send_json(404, {"error": "Not found"})
         if self.blocked_path():
@@ -116,10 +151,22 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if path.startswith("/api/livetalking/"):
                 route = path.rsplit("/", 1)[1]
-                if route not in LIVETALKING_ROUTES or not LIVETALKING_URL:
-                    return self.send_json(404, {"error": "LiveTalking is not configured (set LIVETALKING_URL)."})
+                servers = backends()
+                if route not in LIVETALKING_ROUTES or not servers:
+                    return self.send_json(404, {"error": "LiveTalking is not configured (set LIVETALKING_URL or backends.txt)."})
+                if route == "offer":                       # a new call: use the first server that is up
+                    idx = first_up()
+                    if idx is None:
+                        raise UpstreamError(502, "No live avatar server is reachable right now.")
+                else:                                      # later calls go to the server this call started on
+                    try:
+                        idx = int(self.headers.get("X-LT-Backend", "0"))
+                    except ValueError:
+                        idx = 0
+                    if not 0 <= idx < len(servers):
+                        raise UpstreamError(409, "That live avatar server is no longer configured.")
                 req = urllib.request.Request(
-                    "%s/%s" % (LIVETALKING_URL, route), data=self.read_body(), method="POST",
+                    "%s/%s" % (servers[idx], route), data=self.read_body(), method="POST",
                     headers={"Content-Type": self.headers.get("Content-Type", "application/json")})
                 try:
                     with urllib.request.urlopen(req, timeout=60) as r:
@@ -127,7 +174,12 @@ class Handler(SimpleHTTPRequestHandler):
                 except urllib.error.HTTPError as e:
                     out, ctype, status = e.read(), e.headers.get("Content-Type", "text/plain"), e.code
                 except (urllib.error.URLError, OSError) as e:
-                    raise UpstreamError(502, "Could not reach LiveTalking at %s: %s" % (LIVETALKING_URL, getattr(e, "reason", e)))
+                    raise UpstreamError(502, "Live avatar server %d is not reachable: %s" % (idx + 1, getattr(e, "reason", e)))
+                if route == "offer" and status == 200:
+                    try:
+                        j = json.loads(out); j["backend"] = idx; out = json.dumps(j).encode("utf-8")
+                    except ValueError:
+                        pass
                 self.send_response(status)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(out)))
@@ -155,7 +207,7 @@ class Handler(SimpleHTTPRequestHandler):
 def main():
     srv = ThreadingHTTPServer((HOST, PORT), Handler)
     print("Avatar app: http://%s:%d" % ("localhost" if HOST == "127.0.0.1" else HOST, PORT))
-    print("  Live video avatar (LiveTalking):", LIVETALKING_URL or "off (add LIVETALKING_URL to .env)")
+    print("  Live video avatar (LiveTalking):", ", ".join(backends()) or "off (add LIVETALKING_URL to .env)")
     print("Close this window or press Ctrl+C to stop.")
     try:
         srv.serve_forever()

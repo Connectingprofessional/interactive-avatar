@@ -28,3 +28,19 @@ open-source server that turns audio into a realtime lip-synced face over WebRTC.
 - Browser voices cannot be sent to the avatar. A natural voice (Kokoro or Piper) is required.
 - `.env` is never served to the browser and is ignored by git.
 - Other free engines can be added in `providers.js`: one class with connect, speak, interrupt and disconnect.
+
+## Several servers in a row (failover)
+List more than one LiveTalking server and the app keeps going when one stops:
+- Put them in `backends.txt` (see `backends.txt.example`), best first, or in `LIVETALKING_URL` separated by commas.
+- A new call uses the first server that answers. If it dies mid-call, the app reconnects to the next one,
+  repeats the sentence it was saying, and shows "Live (backup server 2)". If none is up it falls back to the
+  built-in avatar. Check status at http://localhost:8000/api/livetalking/health.
+- This is the only piece that is automatic. Starting LiveTalking on each host and putting its address in the list is up to you.
+
+What a 24-hour relay on free GPU hosts needs to respect:
+- Free GPU time is capped, not unlimited. Kaggle's is a weekly quota (about 30 hours reported, not published), so 12 hours
+  every day does not fit. Colab's free tier gives no guaranteed GPU, and its terms bar web services and remote proxies on free runtimes.
+  Hugging Face ZeroGPU is 5 minutes a day. Read each host's current terms before running a server there.
+- Video needs a route to the browser (WebRTC, UDP). Many free notebook tunnels only carry HTTP.
+- A host's address usually changes each session, so update `backends.txt` when you start one.
+- For a stable all-day service, a GPU machine you own is the dependable free option.
