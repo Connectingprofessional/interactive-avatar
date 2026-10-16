@@ -330,11 +330,14 @@
       </div>
       <p class="small">Upload any clear, front-facing photo. In Chrome the mouth is found automatically when face detection is enabled; otherwise tap the lips once.</p>
 
-      <div id="engineBox" hidden style="display:none;flex-direction:column;gap:8px;margin-top:10px">
+      <div id="engineBox" style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
         <div class="label-t">Live video avatar</div>
         <select id="engineSel" aria-label="Live video avatar engine"></select>
+        <input class="field" id="engineUrl" placeholder="Server address, e.g. https://your-name.trycloudflare.com" inputmode="url" autocomplete="off" aria-label="LiveTalking server address">
+        <details><summary class="small" style="cursor:pointer">Advanced: TURN / STUN servers (JSON)</summary>
+          <textarea class="field" id="engineIce" rows="3" spellcheck="false" placeholder='[{"urls":"turn:host:3478","username":"user","credential":"pass"}]'></textarea></details>
         <button class="btn" id="engineBtn" type="button">Start live avatar</button>
-        <p class="small" id="engineNote">Free and open source: a video avatar from a LiveTalking server you run yourself. It speaks with your chosen free voice and brain. Needs a natural voice (Kokoro or Piper) under Brain and offline AI.</p>
+        <p class="small" id="engineNote">Optional and free: a realistic video avatar from a LiveTalking server (open source) that you run on a GPU. Paste its address above, or start the app with server.py and LIVETALKING_URL. It speaks with your free voice and brain, so turn on a natural voice (Kokoro or Piper) under Brain and offline AI.</p>
       </div>
     </div>
 
@@ -1842,13 +1845,11 @@ const Remote = {
   p: null, active: false, kind: "", cfg: null, busy: false,
   async init() {
     if (!window.LiveAvatars) return;
-    this.cfg = await LiveAvatars.config();
-    if (!this.cfg) return;                                   // no local server: feature stays hidden
-    const opts = [];
-    if (this.cfg.livetalking.enabled) opts.push(["livetalking", LiveAvatars.kinds.livetalking.label]);
-    if (!opts.length) return;
-    $("#engineSel").innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
-    $("#engineBox").hidden = false; $("#engineBox").style.display = "flex";
+    this.cfg = await LiveAvatars.config();                   // null on GitHub Pages: then the pasted server address is used directly
+    $("#engineSel").innerHTML = `<option value="livetalking">${LiveAvatars.kinds.livetalking.label}</option>`;
+    $("#engineUrl").value = store.get("ltUrl", "");
+    $("#engineIce").value = store.get("ltIce", "");
+    if (this.cfg && this.cfg.livetalking.enabled) $("#engineUrl").placeholder = "Leave empty to use the server from .env, or paste an address";
     $("#engineSel").addEventListener("change", () => this.sync());
     $("#engineBtn").addEventListener("click", () => (this.active ? this.stop() : this.start()));
     this.sync();
@@ -1865,11 +1866,19 @@ const Remote = {
       hint("The live avatar needs a natural voice. Open Brain and offline AI, tick Natural human voice, then pick a Kokoro or Piper voice in the Voice tab.", true);
       return;
     }
+    const base = ($("#engineUrl").value || "").trim().replace(/\/+$/, "");
+    const rawIce = ($("#engineIce").value || "").trim();
+    if (!base && !(this.cfg && this.cfg.livetalking.enabled)) {
+      hint("Paste your LiveTalking server address first, or start the app with server.py and LIVETALKING_URL.", true); return;
+    }
+    let ice;
+    if (rawIce) { try { ice = JSON.parse(rawIce); if (!Array.isArray(ice)) throw new Error("x"); } catch { hint("TURN / STUN servers must be a JSON list.", true); return; } }
+    store.set("ltUrl", base); store.set("ltIce", rawIce);
     this.busy = true; this.sync(); $("#engineBtn").textContent = "Connecting…";
     interrupt();
     try {
       const p = LiveAvatars.create(kind, {
-        mount: el.box,
+        mount: el.box, base, ice,
         onStatus: (t) => { $("#engineNote").textContent = t; },
         onClose: (m) => { this.drop(); hint(m, true); },
       });

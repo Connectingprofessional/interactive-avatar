@@ -66,14 +66,28 @@
    * You run https://github.com/lipku/LiveTalking on a GPU machine and set LIVETALKING_URL in .env.
    * The browser sends a WebRTC offer (through server.py), watches the video, and we push our own voice as a WAV file. */
   class LiveTalking {
-    constructor(o) { this.o = o; this.closed = false; this.backend = 0; }
+    constructor(o) {
+      this.o = o; this.closed = false; this.backend = 0;
+      this.base = String(o.base || "").trim().replace(/\/+$/, "");   // direct address; empty = go through server.py
+      this.ice = Array.isArray(o.ice) && o.ice.length ? o.ice : [{ urls: "stun:stun.l.google.com:19302" }];
+    }
     status(t) { try { this.o.onStatus && this.o.onStatus(t); } catch { /* */ } }
-    hdr() { return { "X-LT-Backend": String(this.backend) }; }
+    hdr() { return this.base ? {} : { "X-LT-Backend": String(this.backend) }; }
+    ep(route) { return (this.base || "/api/livetalking") + "/" + route; }
+    checkBase() {
+      if (!this.base) return;
+      let u; try { u = new URL(this.base); } catch { throw new Error("That server address is not a valid web address."); }
+      const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+      if (location.protocol === "https:" && u.protocol === "http:" && !local) {
+        throw new Error("This page is https, so the server address must be https too. Put the server behind a tunnel that gives an https address.");
+      }
+    }
 
     async connect() {
+      this.checkBase();
       this.status("Connecting to LiveTalking…");
       if (!this.video) this.video = makeVideo(this.o.mount);
-      const pc = (this.pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] }));
+      const pc = (this.pc = new RTCPeerConnection({ iceServers: this.ice }));
       pc.addTransceiver("video", { direction: "recvonly" });
       pc.addTransceiver("audio", { direction: "recvonly" });
       pc.ontrack = (e) => { if (this.video && this.video.srcObject !== e.streams[0]) this.video.srcObject = e.streams[0]; };
@@ -87,7 +101,7 @@
         pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && res();
         setTimeout(res, 2500);
       });
-      const j = await api("/api/livetalking/offer", { sdp: pc.localDescription.sdp, type: pc.localDescription.type });
+      const j = await api(this.ep("offer"), { sdp: pc.localDescription.sdp, type: pc.localDescription.type });
       const a = j.data && j.data.sdp ? j.data : j;                    // accept both plain and {code,data} replies
       this.sid = a.sessionid;
       this.backend = j.backend || 0;                                  // which server the app picked (priority order)
@@ -116,7 +130,7 @@
       const fd = new FormData();
       fd.append("sessionid", String(this.sid));
       fd.append("file", wavBlob(pcm, rate), "speech.wav");
-      const r = await fetch("/api/livetalking/humanaudio", { method: "POST", body: fd, headers: this.hdr() });
+      const r = await fetch(this.ep("humanaudio"), { method: "POST", body: fd, headers: this.hdr() });
       if (!r.ok) throw new Error("LiveTalking refused the audio (" + r.status + ")");
     }
 
@@ -133,7 +147,7 @@
       await wait(Math.min(1200, seconds * 1000));
       while (!this.closed && Date.now() < end && !this.cancel) {
         let speaking = true;
-        try { const s = await api("/api/livetalking/is_speaking", { sessionid: this.sid }, this.hdr()); speaking = !!(s.data !== undefined ? s.data : s); } catch { break; }
+        try { const s = await api(this.ep("is_speaking"), { sessionid: this.sid }, this.hdr()); speaking = !!(s.data !== undefined ? s.data : s); } catch { break; }
         if (!speaking) break;
         await wait(250);
       }
@@ -142,7 +156,7 @@
 
     interrupt() {
       this.cancel = true;
-      if (this.sid !== undefined) api("/api/livetalking/interrupt_talk", { sessionid: this.sid }, this.hdr()).catch(() => {});
+      if (this.sid !== undefined) api(this.ep("interrupt_talk"), { sessionid: this.sid }, this.hdr()).catch(() => {});
     }
 
     lost(msg) { if (this.closed) return; this.closed = true; this.cleanup(); this.o.onClose && this.o.onClose(msg); }
