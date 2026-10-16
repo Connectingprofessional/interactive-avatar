@@ -67,12 +67,12 @@
    * The browser sends a WebRTC offer (through server.py), watches the video, and we push our own voice as a WAV file. */
   class LiveTalking {
     constructor(o) {
-      this.o = o; this.closed = false; this.backend = 0;
+      this.o = o; this.closed = false; this.backend = null;
       this.base = String(o.base || "").trim().replace(/\/+$/, "");   // direct address; empty = go through server.py
       this.ice = Array.isArray(o.ice) && o.ice.length ? o.ice : [{ urls: "stun:stun.l.google.com:19302" }];
     }
     status(t) { try { this.o.onStatus && this.o.onStatus(t); } catch { /* */ } }
-    hdr() { return this.base ? {} : { "X-LT-Backend": String(this.backend) }; }
+    hdr() { return this.backend != null ? { "X-LT-Backend": String(this.backend) } : {}; }   // set when a gateway or server.py picked the server
     ep(route) { return (this.base || "/api/livetalking") + "/" + route; }
     checkBase() {
       if (!this.base) return;
@@ -104,9 +104,9 @@
       const j = await api(this.ep("offer"), { sdp: pc.localDescription.sdp, type: pc.localDescription.type });
       const a = j.data && j.data.sdp ? j.data : j;                    // accept both plain and {code,data} replies
       this.sid = a.sessionid;
-      this.backend = j.backend || 0;                                  // which server the app picked (priority order)
+      this.backend = j.backend ?? null;                                // which server the gateway / server.py picked (priority order)
       await pc.setRemoteDescription({ sdp: a.sdp, type: a.type || "answer" });
-      this.status(this.backend ? "Live (backup server " + (this.backend + 1) + ")" : "Live");
+      this.status(typeof this.backend === "number" ? (this.backend ? "Live (backup server " + (this.backend + 1) + ")" : "Live") : this.backend ? "Live (" + this.backend + ")" : "Live");
     }
 
     /** the server died or the connection broke: join the next server that is up, in priority order */

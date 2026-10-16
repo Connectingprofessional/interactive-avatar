@@ -73,3 +73,7 @@ Pick where to run it, in this order:
 Known risk: video travels over WebRTC (UDP). A server in a notebook or behind a home router may not be reachable by your
 browser even when the web address works. If the video never appears, a TURN relay is needed on both sides, and I could not
 confirm that LiveTalking can be given TURN settings. Test this first on a short session.
+
+## One stable address for changing GPU hosts (the "gateway")
+For the 12-hours-then-12-hours idea, use the gateway in `gateway/`: the app keeps one fixed address, GPU hosts register
+themselves when they start, and the app moves to the next one if the current one stops. See `gateway/README.md`.

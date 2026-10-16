@@ -1,0 +1,12 @@
+# Cloudflare Worker settings (free plan). Deploy steps are in README.md.
+name = "avatar-gateway"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "BACKENDS"
+id = "PASTE_THE_ID_FROM_wrangler_kv_namespace_create"
+
+[vars]
+# Only let your own site call the gateway (recommended). Leave empty to allow any site.
+ALLOWED_ORIGIN = "https://connectingprofessional.github.io"

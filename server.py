@@ -65,12 +65,10 @@ def backends():
 
 def is_up(url):
     try:
-        with urllib.request.urlopen(urllib.request.Request(url + "/", method="GET"), timeout=2.5):
-            return True
-    except urllib.error.HTTPError:
-        return True                                   # it answered, so it is alive
+        with urllib.request.urlopen(urllib.request.Request(url + "/index.html", method="GET"), timeout=2.5):
+            return True                                # LiveTalking's own page answered
     except (urllib.error.URLError, OSError, ValueError):
-        return False
+        return False                                   # includes 404/502/530 from a dead tunnel
 
 
 def first_up():
